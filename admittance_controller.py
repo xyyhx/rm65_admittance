@@ -1,63 +1,74 @@
-# encode UFS-8
-class AdmittanceController:
-    def __init__(self, M_mass, B_damping, K_stiffness, dt, desired_force=0.0):
-        """
-        初始化导纳控制器
-        :param mass: 虚拟质量 M
-        :param damping: 虚拟阻尼 B
-        :param stiffness: 虚拟刚度 K
-        :param dt: 时间步长 Δt
-        :param desired_force: 期望力
-        """
-        if dt <= 0:
-            raise ValueError("时间步长 dt 必须为正值")
+# -*- coding: utf-8 -*-
+import numpy as np
 
-        self.mass = M_mass
-        self.damping = B_damping
-        self.stiffness = K_stiffness
+
+class AdmittanceController:
+    def __init__(self,
+                 mass: float,
+                 damping: float,
+                 stiffness: float,
+                 dt: float,
+                 desired_force: float = 0.0,
+                 a_max: float = None,
+                 v_max: float = None):
+        if dt <= 0 or mass <= 0:
+            raise ValueError("dt 和 mass 必须为正值")
+
+        self.mass = mass
+        self.damping = damping
+        self.stiffness = stiffness
         self.dt = dt
         self.desired_force = desired_force
 
-        # 初始化状态变量
-        self.position = 0.0  # x(t)
-        self.velocity = 0.0  # x_dot(t)
+        self.position = 0.0
+        self.velocity = 0.0
 
-    def compute(self, force_input):
-        """
-        根据输入的力计算位移变化量
-        :param force_input: 输入力 F(t)
-        :return: 当前位移 x(t+1)
-        """
-        # 计算力误差
-        delta_force = self.desired_force - force_input
+        self.a_max = a_max
+        self.v_max = v_max
 
-        # 计算加速度 (F_error - B * v - K * x) / M
-        acceleration = (delta_force - self.damping * self.velocity - self.stiffness * self.position) / self.mass
+    def compute(self, force_input: float) -> float:
+        f_err = self.desired_force - force_input
 
-        # 更新速度和位移
-        self.velocity += acceleration * self.dt
-        self.position += self.velocity * self.dt
+        a = (f_err
+             - self.damping * self.velocity
+             - self.stiffness * self.position
+             ) / self.mass
 
-        return self.position
+        if self.a_max is not None:
+            a = np.clip(a, -self.a_max, self.a_max)
 
-    def set_desired_force(self, desired_force):
-        """动态调整期望力"""
+        self.velocity += a * self.dt
+
+        if self.v_max is not None:
+            self.velocity = np.clip(self.velocity, -self.v_max, self.v_max)
+
+        new_pos = self.position + self.velocity * self.dt
+        delta = new_pos - self.position
+        self.position = new_pos
+        return delta
+
+    def set_desired_force(self, desired_force: float):
         self.desired_force = desired_force
 
-    def set_damping(self, B_impedance):
-        """动态调整阻抗参数"""
-        self.damping = B_impedance
+    def reset(self, position: float = 0.0, velocity: float = 0.0):
+        self.position = position
+        self.velocity = velocity
 
 
-# 示例用法
 if __name__ == "__main__":
-    # 创建导纳控制器实例
-    admittance = AdmittanceController(M_mass=0.25, B_damping=25, K_stiffness=1000, dt=0.01, desired_force=6)
+    adm = AdmittanceController(
+        mass=0.25,
+        damping=25,
+        stiffness=100,
+        dt=0.01,
+        desired_force=6.0,
+        a_max=50.0,
+        v_max=100.0
+    )
 
-    # 模拟外力输入
-    force_inputs = [10.0, 8.0, 6.0, 4.0, 2.0, 0.0]  # 假设一组力输入
+    inputs = [10.0, 8.0, 6.0, 4.0, 2.0, 0.0]
 
-    print("时间步\t外力\t位移")
-    for i, force in enumerate(force_inputs):
-        displacement = admittance.compute(force)
-        print(f"{i+1}\t{force:.2f}\t{displacement:.4f}")
+    print("Step\tF_in\tΔx")
+    for i, f in enumerate(inputs, start=1):
+        dx = adm.compute(f)
+        print(f"{i}\t{f:.2f}\t{dx:.6f}")
